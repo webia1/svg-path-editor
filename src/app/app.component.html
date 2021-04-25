@@ -1,7 +1,12 @@
 <div style="display:flex;flex-direction:row;height: 100%;" @leftColumnParent>
-    <div *ngIf="isLeftPanelOpened" @leftColumn (@leftColumn.done)="canvas.refreshCanvasSize()" style="width:300px">
-        <div class="left-column" cdk-scrollable>  
-            <app-expandable panelTitle="Path" [opened]="true">
+    <div *ngIf="isLeftPanelOpened" @leftColumn (@leftColumn.done)="canvas.refreshCanvasSize()" class="left-column-wrapper">
+        <button mat-raised-button class="left-column-close"
+            (click)="toggleLeftPanel()"
+        >
+            <mat-icon>arrow_left</mat-icon>
+        </button>
+        <div class="left-column" cdk-scrollable>
+            <app-expandable panelTitle="Path" [panelInfo]="rawPath.length" [opened]="true">
                 <div class="row">
                     <div class="input-block" style="flex-grow:1"> 
                         <label class="opaque">Path</label>
@@ -17,9 +22,24 @@
                     </div>
                 </div>
                 <div style="text-align: center;">
+                    
+                    <app-open (openPath)="openPath($event.path, $event.name)"></app-open>
+                    <app-save [path]="rawPath" [(name)]="pathName"></app-save>
+
+                    <button mat-mini-fab
+                        color="basic"
+                        style="font-size: 1px; transform: none; margin:0 4px;"
+                        matTooltip="Clear path"
+                        matTooltipPosition="below"
+                        matTooltipClass="app-tooltip"
+                        (click)="reloadPath('', false)"
+                    >
+                        <mat-icon>clear</mat-icon>
+                    </button>
+
                     <button mat-mini-fab
                         color="primary"
-                        style="font-size: 1px; transform: none; margin:0 4px;"
+                        style="font-size: 1px; transform: none; margin:0 4px 0 96px;"
                         [matMenuTriggerFor]="appCreate"
                         [matMenuTriggerData]="{item:null, idx:-1}"
                         matTooltip="Append new command"
@@ -28,73 +48,98 @@
                     >
                         <mat-icon>add</mat-icon>
                     </button>
-                    
-                    <app-open (openPath)="openPath($event.path, $event.name)"></app-open>
-                    <app-save [path]="rawPath" [(name)]="pathName"></app-save>
                 </div>            
             </app-expandable>
 
             <app-expandable panelTitle="Configuration" [opened]="true">
                 <div class="row">
-                    <div class="input-block">
+                    <div class="input-block" [ngClass]="{'disabled': viewPortLocked }">
                         <label>X</label>
                         <input
                             class="app-input"
-                            [ngModel]="viewPortX"
-                            (ngModelChange)="updateViewPort($event, viewPortY, viewPortWidth, viewPortHeight)" 
+                            appFormatter
+                            [value]="viewPortX"
+                            (valueChange)="updateViewPort($event, viewPortY, viewPortWidth, viewPortHeight)"
+                            [disabled]="viewPortLocked" 
                         >
                     </div>
-                    <div class="input-block">
+                    <div class="input-block" [ngClass]="{'disabled': viewPortLocked }">
                         <label>Y</label>
                         <input
                             class="app-input"
-                            [ngModel]="viewPortY"
-                            (ngModelChange)="updateViewPort(viewPortX, $event, viewPortWidth, viewPortHeight)"
+                            appFormatter
+                            [value]="viewPortY"
+                            (valueChange)="updateViewPort(viewPortX, $event, viewPortWidth, viewPortHeight)"
+                            [disabled]="viewPortLocked" 
                         >
                     </div>
-                    <div class="input-block">
+                    <div class="input-block" [ngClass]="{'disabled': viewPortLocked }">
                         <label>Width</label>
                         <input
                             class="app-input"
-                            [ngModel]="viewPortWidth"
-                            (ngModelChange)="updateViewPort(viewPortX, viewPortY, $event, null)" 
+                            appFormatter
+                            formatterType="positive-float"
+                            [value]="viewPortWidth"
+                            (valueChange)="updateViewPort(viewPortX, viewPortY, $event, null)"
+                            [disabled]="viewPortLocked" 
                         >
                     </div>
-                    <div class="input-block">
+                    <div class="input-block" [ngClass]="{'disabled': viewPortLocked }">
                         <label>Height</label>
                         <input
                             class="app-input"
-                            [ngModel]="viewPortHeight"
-                            (ngModelChange)="updateViewPort(viewPortX, viewPortY, null, $event)"
+                            appFormatter
+                            formatterType="positive-float"
+                            [value]="viewPortHeight"
+                            (valueChange)="updateViewPort(viewPortX, viewPortY, null, $event)"
+                            [disabled]="viewPortLocked" 
                         >
                     </div>
+
                     <button
                         mat-flat-button
-                        (click)="zoomAuto()"
-                        matTooltip="Automatically set viewBox"
-                        matTooltipPosition="right"
-                    >AUTO</button>
-                </div>
-                <div class="row">
-                    <div class="input-block" style="flex-grow: 1;"
-                        matTooltip="Number of decimals to keep when a point is dragged"
+                        (click)="viewPortLocked = !viewPortLocked"
+                        [matTooltip]="viewPortLocked ? 'Lock viewBox' : 'Unlock viewBox'"
                         matTooltipPosition="right"
                     >
-                        <label>Decimals on mouse drag</label>
-                        <input [(ngModel)]="decimals" class="app-input">
+                        <mat-icon *ngIf="!viewPortLocked">lock_open</mat-icon>
+                        <mat-icon *ngIf="viewPortLocked">lock</mat-icon>
+                    </button>
+                </div>
+                <div class="row">
+                    <mat-checkbox [(ngModel)]="snapToGrid" style="flex:1">Snap to Grid</mat-checkbox>
+                    <div class="input-block" style="flex:1"
+                        matTooltip="Number of decimals to keep when a point is dragged"
+                        matTooltipPosition="right"
+                        [matTooltipDisabled]="snapToGrid"
+                        [ngClass]="{'disabled': snapToGrid }"
+                    >
+                        <label>Point Precision</label>
+                        <input
+                            class="app-input"
+                            appFormatter
+                            formatterType="positive-integer"
+                            [(value)]="decimalPrecision"
+                            [disabled]="snapToGrid">
+                    </div>
+                </div>
+                <div class="row">
+                    <mat-checkbox [(ngModel)]="showTicks" style="flex:1">Show Ticks</mat-checkbox>
+                    <div class="input-block" style="flex:1"
+                        [ngClass]="{'disabled': !showTicks }"
+                    >
+                        <label>Interval</label>
+                        <input
+                            class="app-input"
+                            appFormatter
+                            formatterType="positive-integer"
+                            [(value)]="tickInterval" 
+                            [disabled]="!showTicks">
                     </div>
                 </div>
                 <div class="row">
                     <mat-checkbox [(ngModel)]="preview" style="flex:1">Preview</mat-checkbox>
                     <mat-checkbox [ngModel]="minifyOutput" (ngModelChange)="minifyOutput=$event;afertModelChange()" style="flex:1">Minify output</mat-checkbox>
-                </div>
-                <div class="row tick-options">
-                    <mat-checkbox [(ngModel)]="showTicks" style="flex:1">Show Ticks</mat-checkbox>
-                    <div class="input-block" style="flex:1" [style.visibility]="showTicks?'visible':'hidden'">
-                        <label>Interval</label>
-                        <input class="app-input" [(ngModel)]="tickInterval" >
-                    </div>
-
                 </div>
 
             </app-expandable>
@@ -103,14 +148,11 @@
                 <div class="row">
                     <div class="input-block" style="flex:1">
                         <label>Scale X</label>
-                        <input
-                            [(ngModel)]="scaleX"
-                            class="app-input"
-                        >
+                        <input appFormatter [(value)]="scaleX" class="app-input" >
                     </div>
                     <div class="input-block" style="flex:1">
                         <label>Scale Y</label>
-                        <input [(ngModel)]="scaleY" class="app-input">
+                        <input appFormatter [(value)]="scaleY" class="app-input">
                     </div>
                     <button
                         mat-flat-button
@@ -124,11 +166,11 @@
                 <div class="row">
                     <div class="input-block" style="flex:1">
                         <label>Translate X</label>
-                        <input [(ngModel)]="translateX" class="app-input">
+                        <input appFormatter [(value)]="translateX" class="app-input">
                     </div>
                     <div class="input-block" style="flex:1">
                         <label>Translate Y</label>
-                        <input [(ngModel)]="translateY" class="app-input">
+                        <input appFormatter [(value)]="translateY" class="app-input">
                     </div>
                     <button
                         mat-flat-button
@@ -142,7 +184,7 @@
                 <div class="row">
                     <div class="input-block" style="flex:2">
                         <label>Number of decimals</label>
-                        <input [(ngModel)]="roundValuesDecimals" class="app-input">
+                        <input appFormatter formatterType="positive-integer" [(value)]="roundValuesDecimals" class="app-input">
                     </div>
                     <button
                         mat-flat-button 
@@ -188,7 +230,7 @@
                     <ng-container *ngFor="let value of item.values; let i = index; trackBy:trackByIndex">
                         <mat-checkbox *ngIf="item.getType().toLowerCase()==='a' && (i==3 || i==4)"
                             [ngModel]="value"
-                            (ngModelChange)="setValue(item,i,$event?'1':'0');"
+                            (ngModelChange)="setValue(item,i,$event?1:0);"
                             (focus)="focusedItem=item"
                             class="small-checkbox"
                             matTooltipClass="app-tooltip"
@@ -196,9 +238,13 @@
                         ></mat-checkbox>
                         <input *ngIf="!(item.getType().toLowerCase()==='a' && (i==3 || i==4))"
                             type="text"
-                            [ngModel]="formatNumber(value)" 
-                            (ngModelChange)="setValue(item,i,$event);"
+                            appKeyboardNavigable
+                            keyboardNavigableIdPrefix="svg_command"
+                            appFormatter
+                            [value]="value" 
+                            (valueChange)="setValue(item,i,$event);"
                             class="svg-value app-input"
+                            id="svg_command_{{j}}_{{item.getType().toLowerCase()==='a' && i>4 ? i-1 : i}}"
                             (focus)="focusedItem=item"
                             matTooltipClass="app-tooltip"
                             [matTooltip]="getTooltip(item, i)"
@@ -212,10 +258,17 @@
                     </button>
                 </div>
             </app-expandable>
+            <div class="spacer"></div>
         </div>
     </div>
-    <div style="flex:1; align-self:stretch;position: relative;overflow:hidden" class="drawings">
-        <button mat-mini-fab *ngIf="(!draggedPoint && focusedItem && !preview) || parsedPath.path.length===0"
+
+    <div class="drawings">
+        <button mat-raised-button class="left-column-open" *ngIf="!isLeftPanelOpened"
+        (click)="toggleLeftPanel()"
+        >
+            <mat-icon>arrow_right</mat-icon>
+        </button>
+        <button mat-mini-fab *ngIf="((!draggedPoint && focusedItem) || parsedPath.path.length===0) && !(preview || isEditingImages)"
             color="primary"
             class="add-button"
             [ngStyle]="{
@@ -232,35 +285,110 @@
             <mat-icon *ngIf="!focusedItem">add</mat-icon>
         </button>
 
-        <button mat-raised-button
-            style="position: absolute; left:0; top:8px; border-radius: 0; min-width:16px; padding:8px 2px"
-            (click)="toggleLeftPanel()"
+
+        <button mat-mini-fab *ngIf="(focusedImage && !preview && !dragging)"
+            color="primary"
+            class="add-button"
+            [ngStyle]="{
+                'left': (max(focusedImage.x1,focusedImage.x2) - viewPortX)/strokeWidth+'px',
+                'top': (max(focusedImage.y1,focusedImage.y2) - viewPortY)/strokeWidth+'px'
+            }"
+            [ngClass]="{'opened':isContextualMenuOpened}"
+            [matMenuTriggerFor]="appImage"
+            [matMenuTriggerData]="{image:focusedImage}"
+            (menuOpened)="isContextualMenuOpened = true"
+            (menuClosed)="isContextualMenuOpened = false"
         >
-            <mat-icon>{{isLeftPanelOpened?'arrow_left':'arrow_right'}}</mat-icon>
+            <mat-icon svgIcon="more"></mat-icon>
         </button>
 
-        <button mat-mini-fab
-            color="basic"
-            style="font-size: 1px; transform: none;position: absolute; right:56px; top:8px;"
-            matTooltip="Undo"
-            matTooltipPosition="below"
-            (click)="undo()"
-            [disabled]="!canUndo()"
-        >
-            <mat-icon>undo</mat-icon>
-        </button>
-        <button mat-mini-fab
-            color="basic"
-            style="font-size: 1px; transform: none;position: absolute; right:8px; top:8px;"
-            matTooltip="Redo"
-            matTooltipPosition="below"
-            (click)="redo()"
-            [disabled]="!canRedo()"
-        >
-            <mat-icon>redo</mat-icon>
-        </button>
+        <div class="scene-top-actions">
+            <button mat-mini-fab
+                color="basic"
+                matTooltip="Undo"
+                matTooltipPosition="below"
+                (click)="undo()"
+                [disabled]="!canUndo()"
+            >
+                <mat-icon>undo</mat-icon>
+            </button>
+            <button mat-mini-fab
+                color="basic"
+                matTooltip="Redo"
+                matTooltipPosition="below"
+                (click)="redo()"
+                [disabled]="!canRedo()"
+                style="margin-right: 16px"
+            >
+                <mat-icon>redo</mat-icon>
+            </button>
 
-        <svg xmlns="http://www.w3.org/2000/svg" app-canvas  #canvas [attr.viewBox]="viewPortX+' '+viewPortY+' '+viewPortWidth+' '+viewPortHeight" [ngClass]="{preview:preview}"
+            <app-upload-image
+                [class.displayed]="isEditingImages"
+                class="add-image-button"
+                (addImage)="addImage($event)"
+                #uploader
+            ></app-upload-image>
+
+            <button mat-mini-fab
+                [color]="isEditingImages ? 'primary' : 'basic'"
+                [matTooltip]="isEditingImages ? undefined : 'Toggle image magemement mode'"
+                matTooltipPosition="below"
+                style="margin-right: 24px"
+                (click)="toggleImageEditing(uploader)"
+            >
+                <mat-icon>image</mat-icon>
+            </button>
+
+            <app-export [path]="rawPath" [name]="pathName"></app-export>
+        </div>
+        <div class="scene-bottom-actions">
+            <button
+                mat-mini-fab
+                color="basic"
+                (click)="snapToGrid = !snapToGrid"
+                matTooltip="Snap to Grid"
+                matTooltipPosition="left"
+            >
+                <mat-icon> {{ snapToGrid ? 'grid_on' : 'grid_off' }}</mat-icon> 
+            </button>
+            <button
+                mat-mini-fab
+                color="basic"
+                (click)="viewPortLocked=false;canvas.zoomViewPort(9/10)"
+                matTooltip="Zoom In"
+                matTooltipPosition="left"
+                style="margin-top: 24px"
+            >
+                <mat-icon svgIcon="zoom_in"></mat-icon> 
+            </button>
+            <button
+                mat-mini-fab
+                color="basic"
+                (click)="viewPortLocked=false;zoomAuto()"
+                matTooltip="Zoom to Fit"
+                matTooltipPosition="left"
+            >
+                <mat-icon svgIcon="zoom_fit"></mat-icon> 
+            </button>
+            <button
+                mat-mini-fab
+                color="basic"
+                (click)="viewPortLocked=false;canvas.zoomViewPort(10/9)"
+                matTooltip="Zoom Out"
+                matTooltipPosition="left"
+            >
+                <mat-icon svgIcon="zoom_out"></mat-icon> 
+            </button>
+        </div>
+
+        <svg
+            xmlns="http://www.w3.org/2000/svg" 
+            xmlns:xlink="http://www.w3.org/1999/xlink"
+            app-canvas 
+            [attr.viewBox]="viewPortX+' '+viewPortY+' '+viewPortWidth+' '+viewPortHeight"
+            [ngClass]="{preview:preview}"
+        
             [parsedPath]="parsedPath"
             [targetPoints]="targetPoints"
             [controlPoints]="controlPoints"
@@ -279,10 +407,14 @@
             [showTicks]="showTicks"
             [tickInterval]="tickInterval"
             (afertModelChange)="afertModelChange()"
-            (dragging)="setHistoryDisabled($event); draggedIsNew=!$event ? false : draggedIsNew"
-            (canvasWidthChange)="canvasWidth = $event"
+            (dragging)="setIsDragging($event)"
+            (canvasWidthChange)="canvasWidth = $event || canvasWidth"
             (canvasHeightChange)="canvasHeight = $event"
-            (viewPort)="updateViewPort($event.x, $event.y, $event.w, $event.h)"
+            (emptyCanvas)="isLeftPanelOpened = false"
+            (viewPort)="updateViewPort($event.x, $event.y, $event.w, $event.h, $event.force)"
+            [editImages]="isEditingImages"
+            [images]="images"
+            [(focusedImage)]="focusedImage"
         ></svg>
     </div>
 </div>
@@ -326,5 +458,18 @@
         <button mat-menu-item (click)="insert('T', item, convert)" [disabled]="convert?!canConvert(item,'T'):!canInsertAfter(item, 'T')"><strong>T</strong> Shorthand Quadratic Bezier Curve to</button>
         <button mat-menu-item (click)="insert('A', item, convert)" [disabled]="convert?!canConvert(item,'A'):!canInsertAfter(item, 'A')"><strong>A</strong> Elliptical Arc</button>
         <button mat-menu-item (click)="insert('Z', item, convert)" [disabled]="convert?!canConvert(item,'Z'):!canInsertAfter(item, 'Z')"><strong>Z</strong> Close Path</button>
+    </ng-template>
+</mat-menu>
+
+
+<mat-menu #appImage="matMenu">
+    <ng-template matMenuContent let-image="image">
+        <button mat-menu-item (click)="image.preserveAspectRatio = !image.preserveAspectRatio">
+            <mat-icon>aspect_ratio</mat-icon>
+            <ng-container>Toggle Preserve Aspect Ratio</ng-container>
+        </button>
+        <button mat-menu-item (click)="deleteImage(image)">
+            <mat-icon>delete</mat-icon> Delete
+        </button>
     </ng-template>
 </mat-menu>

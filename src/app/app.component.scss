@@ -3,6 +3,7 @@
     height: 100%;
 }
 
+
 * {
     box-sizing: border-box;
 }
@@ -31,15 +32,35 @@
         text-decoration: underline;
     }
 }
+.spacer {
+    height:32px;
+}
 
 
 /* UI */
+.left-column-wrapper {
+    width:300px;
+    position: relative;
+}
 .left-column {
     width:300px;
-    padding-bottom:32px;
     overflow:auto;
     background-color:#252526;
     height: calc(100% - 28px);
+}
+.left-column-close, .left-column-open {
+    position: absolute;
+    top:8px;
+    border-radius: 0;
+    min-width:16px;
+    padding:8px 2px;
+    z-index:10;
+}
+.left-column-close {
+    right:-28px;
+}
+.left-column-open {
+    left:0;
 }
 
 input.svg-value {
@@ -80,11 +101,13 @@ div.dragged {
     background-color:#094771;
 }
 
-
-
-
 /* Drawings */
 .drawings {
+    flex:1;
+    align-self:stretch;
+    position: relative;
+    overflow:hidden;
+
     &:hover .add-button, .add-button.opened {
         display: block;
     }
@@ -92,5 +115,56 @@ div.dragged {
         display: none;
         position: absolute;
         font-size: 1px;
+    }
+
+    .scene-top-actions {
+        position: absolute;
+        right: 12px;
+        top: 12px;
+        >button {
+            font-size: 1px;
+            margin-left:8px;
+        }
+        >.add-image-button {
+            position: absolute;
+            margin-left:8px;
+            top:0;
+            opacity: 0;
+            transition: top 0.2s, opacity 0.2s;
+            &.displayed {
+                top:48px;
+                opacity: 1;
+            }
+        }
+    }
+
+    .scene-bottom-actions {
+        position: absolute;
+        right: 12px;
+        bottom: 12px;
+        width:40px;
+        >button {
+            font-size: 1px;
+            margin-top:8px;
+        }
+    }
+}
+
+@media screen and (max-width: 500px) {
+    .left-column {
+        width:100%;
+    }
+    .left-column-wrapper {
+        width:100% !important;
+        max-width:none !important;
+    }
+    .left-column-close {
+        right:0;
+        top: unset;
+        bottom: 4px;
+        padding:2px 6px;
+    }
+    .footer {
+        width: 100%;
     }
 }

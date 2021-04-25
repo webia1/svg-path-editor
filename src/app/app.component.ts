@@ -1,9 +1,12 @@
-import { Component, AfterViewInit, HostBinding, HostListener } from '@angular/core';
+import { Component, AfterViewInit, HostListener, ViewChild } from '@angular/core';
 import { trigger, state, style, animate, transition } from '@angular/animations';
 import { Svg, SvgItem, Point, SvgPoint, SvgControlPoint, formatNumber } from './svg';
 import { MatIconRegistry } from '@angular/material/icon';
 import { DomSanitizer } from '@angular/platform-browser';
 import { StorageService } from './storage.service';
+import { CanvasComponent } from './canvas/canvas.component';
+import { Image } from './image';
+import { UploadImageComponent } from './upload-image/upload-image.component';
 
 
 @Component({
@@ -45,9 +48,11 @@ export class AppComponent implements AfterViewInit {
   viewPortY = 0;
   viewPortWidth = 30;
   viewPortHeight = 30;
+  viewPortLocked = false;
   preview = false;
   showTicks = false;
   minifyOutput = false;
+  snapToGrid = true;
   tickInterval = 5;
   roundValuesDecimals = 1;
 
@@ -56,9 +61,10 @@ export class AppComponent implements AfterViewInit {
   scaleY = 1;
   translateX = 0;
   translateY = 0;
-  decimals = 0;
+  decimalPrecision = 3;
 
   // Canvas Data:
+  @ViewChild(CanvasComponent) canvas;
   canvasWidth = 100;
   canvasHeight = 100;
   strokeWidth: number;
@@ -69,12 +75,19 @@ export class AppComponent implements AfterViewInit {
   hoveredItem: SvgItem;
   wasCanvasDragged = false;
   draggedIsNew = false;
+  dragging = false;
+
+  // Images
+  images: Image[] = [];
+  focusedImage: Image;
 
   // UI State
   isLeftPanelOpened = true;
   isContextualMenuOpened = false;
+  isEditingImages = false;
 
   // Utility functions:
+  max = Math.max;
   trackByIndex = (idx, _) => idx;
   formatNumber = (v) => formatNumber(v, 4);
 
@@ -83,11 +96,9 @@ export class AppComponent implements AfterViewInit {
     sanitizer: DomSanitizer,
     private storage: StorageService
   ) {
-    matRegistry.addSvgIcon('delete', sanitizer.bypassSecurityTrustResourceUrl('./assets/delete.svg'));
-    matRegistry.addSvgIcon('logo', sanitizer.bypassSecurityTrustResourceUrl('./assets/logo.svg'));
-    matRegistry.addSvgIcon('more', sanitizer.bypassSecurityTrustResourceUrl('./assets/more.svg'));
-    matRegistry.addSvgIcon('github', sanitizer.bypassSecurityTrustResourceUrl('./assets/github.svg'));
-
+    for (const icon of ['delete', 'logo', 'more', 'github', 'zoom_in', 'zoom_out', 'zoom_fit']) {
+      matRegistry.addSvgIcon(icon, sanitizer.bypassSecurityTrustResourceUrl(`./assets/${icon}.svg`));
+    }
     this.reloadPath(this.rawPath, true);
   }
 
@@ -101,13 +112,39 @@ export class AppComponent implements AfterViewInit {
         this.undo();
         $event.preventDefault();
       } else if (!$event.metaKey && !$event.ctrlKey && /^[mlvhcsqtaz]$/i.test($event.key)) {
-        if (this.canInsertAfter(this.focusedItem, $event.key)) {
-          this.insert($event.key, this.focusedItem, false);
+        const isLower = $event.key === $event.key.toLowerCase();
+        const key = $event.key.toUpperCase();
+        if (isLower && this.canInsertAfter(this.focusedItem, key)) {
+          this.insert(key, this.focusedItem, false);
+          $event.preventDefault();
+        } else if (!isLower && this.canConvert(this.focusedItem, key)) {
+          this.insert(key, this.focusedItem, true);
+          $event.preventDefault();
+        }
+      } else if (!$event.metaKey && !$event.ctrlKey && $event.key === 'Escape') {
+        if (this.dragging) {
+          // If an element is being dragged, undo by reloading the current history entry
+          this.reloadPath(this.history[this.historyCursor]);
+        } else {
+          // stopDrag will unselect selected item if any
+          this.canvas.stopDrag();
+        }
+        $event.preventDefault();
+      } else if (!$event.metaKey && !$event.ctrlKey && ($event.key === 'Delete' || $event.key === 'Backspace')) {
+        if (this.focusedItem && this.canDelete(this.focusedItem)) {
+          this.delete(this.focusedItem);
+          $event.preventDefault();
+        }
+        if (this.focusedImage) {
+          this.deleteImage(this.focusedImage);
           $event.preventDefault();
         }
       }
     }
   }
+  get decimals() {
+    return  this.snapToGrid ? 0 : this.decimalPrecision;
+ }
 
   ngAfterViewInit() {
     setTimeout(() => {
@@ -121,6 +158,14 @@ export class AppComponent implements AfterViewInit {
   set rawPath(value: string) {
       this._rawPath = value;
       this.pushHistory();
+  }
+
+  setIsDragging(dragging: boolean) {
+    this.dragging = dragging;
+    this.setHistoryDisabled(dragging);
+    if (!dragging) {
+      this.draggedIsNew = false;
+    }
   }
 
   setHistoryDisabled(value: boolean) {
@@ -139,7 +184,7 @@ export class AppComponent implements AfterViewInit {
   }
 
   canUndo(): boolean {
-    return this.historyCursor > 0;
+    return this.historyCursor > 0 && !this.isEditingImages;
   }
 
   undo() {
@@ -152,7 +197,7 @@ export class AppComponent implements AfterViewInit {
   }
 
   canRedo(): boolean {
-    return this.historyCursor < this.history.length - 1;
+    return this.historyCursor < this.history.length - 1 && !this.isEditingImages;
   }
 
   redo() {
@@ -164,7 +209,10 @@ export class AppComponent implements AfterViewInit {
     }
   }
 
-  updateViewPort(x: number, y: number, w: number, h: number) {
+  updateViewPort(x: number, y: number, w: number, h: number, force = false) {
+    if (!force && this.viewPortLocked) {
+      return;
+    }
     if (w === null) {
       w = this.canvasWidth * h / this.canvasHeight;
     }
@@ -234,6 +282,9 @@ export class AppComponent implements AfterViewInit {
   }
 
   zoomAuto() {
+    if (this.viewPortLocked) {
+      return;
+    }
     let xmin = 0;
     let ymin = 0;
     let xmax = 10;
@@ -280,8 +331,7 @@ export class AppComponent implements AfterViewInit {
     this.afertModelChange();
   }
 
-  setValue(item: SvgItem, idx: number, valStr: string) {
-    const val = parseFloat(valStr);
+  setValue(item: SvgItem, idx: number, val: number) {
     if (!isNaN(val)) {
       item.values[idx] = val;
       this.parsedPath.refreshAbsolutePositions();
@@ -349,10 +399,10 @@ export class AppComponent implements AfterViewInit {
       m: ['dx', 'dy'],
       L: ['x', 'y'],
       l: ['dx', 'dy'],
-      V: ['x'],
-      v: ['dx'],
-      H: ['y'],
-      h: ['dy'],
+      V: ['y'],
+      v: ['dy'],
+      H: ['x'],
+      h: ['dx'],
       C: ['x1', 'y1', 'x2', 'y2', 'x', 'y'],
       c: ['dx1', 'dy1', 'dx2', 'dy2', 'dx', 'dy'],
       S: ['x2', 'y2', 'x', 'y'],
@@ -375,6 +425,7 @@ export class AppComponent implements AfterViewInit {
   }
 
   reloadPath(newPath: string, autozoom = false) {
+    this.hoveredItem = null;
     this.focusedItem = null;
     this.rawPath = newPath;
     this.invalidSyntax = false;
@@ -386,6 +437,9 @@ export class AppComponent implements AfterViewInit {
       }
     } catch (e) {
       this.invalidSyntax = true;
+      if(!this.parsedPath) {
+        this.parsedPath = new Svg('');
+      }
     }
   }
 
@@ -396,5 +450,24 @@ export class AppComponent implements AfterViewInit {
 
   toggleLeftPanel() {
     this.isLeftPanelOpened = !this.isLeftPanelOpened;
+  }
+
+  deleteImage(image: Image) {
+    this.images.splice(this.images.indexOf(image), 1);
+    this.focusedImage = null;
+  }
+
+  addImage(newImage: Image) {
+    this.focusedImage = newImage;
+    this.images.push(newImage);
+  }
+
+  toggleImageEditing(upload: UploadImageComponent) {
+    this.isEditingImages = !this.isEditingImages;
+    this.focusedImage = null;
+    this.focusedItem = null;
+    if (this.isEditingImages && this.images.length === 0) {
+      upload.openDialog();
+    }
   }
 }
